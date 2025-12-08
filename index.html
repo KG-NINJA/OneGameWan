@@ -286,7 +286,7 @@
   <main class="app">
     <header>
       <h1>🐕 犬のアイテム取りゲーム</h1>
-      <p>アイテムとってみてワン</p>
+      <p>犬を動かしてアイテムを集めよう！</p>
     </header>
     <div class="content">
       <div class="game-area" id="game-area">
@@ -326,7 +326,9 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.18.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@4.18.0/dist/tf-backend-webgl.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js"></script>
 
   <script>
     const videoEl = document.getElementById('video');
@@ -358,7 +360,8 @@
     async function loadScripts() {
       const scripts = [
         'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.18.0/dist/tf.min.js',
-        'https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js'
+        'https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js',
+        'https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js'
       ];
       
       for (const src of scripts) {
@@ -377,15 +380,19 @@
     
     window.scriptsReady = loadScripts();
 
+    let dogDetector = null;
+    let faceDetector = null;
+
     async function loadModel() {
       try {
         await window.scriptsReady;
-        if (typeof cocoSsd === 'undefined') {
-          throw new Error('COCO-SSD ライブラリが読み込まれていません');
+        if (typeof cocoSsd === 'undefined' || typeof blazeface === 'undefined') {
+          throw new Error('ライブラリが読み込まれていません');
         }
         
         statusEl.textContent = 'モデル読込中...';
-        model = await cocoSsd.load();
+        dogDetector = await cocoSsd.load();
+        faceDetector = await blazeface.load();
         updateBadge(modelBadge, '読込完了', true);
         statusEl.textContent = 'STARTボタンを押してね！';
       } catch (e) {
@@ -470,48 +477,94 @@
     }
 
     async function detect() {
-      if (!model || videoEl.readyState < 2) {
+      if (!dogDetector || !faceDetector || videoEl.readyState < 2) {
         detectionLoopId = requestAnimationFrame(detect);
         return;
       }
 
       try {
-        const predictions = await model.detect(videoEl);
-        
+        // 犬の位置を検出
+        const predictions = await dogDetector.detect(videoEl);
+        const dogs = predictions.filter((p) => p.class === 'dog' && p.score > 0.5);
+
+        // 顔（犬の鼻）を検出
+        const faces = await faceDetector.estimateFaces(videoEl, false);
+
         overlay.width = gameArea.offsetWidth;
         overlay.height = gameArea.offsetHeight;
         ctx.clearRect(0, 0, overlay.width, overlay.height);
 
-        const dogs = predictions.filter((p) => p.class === 'dog' && p.score > 0.5);
-
+        // 犬の位置を描画
         dogs.forEach((dog) => {
           const [x, y, width, height] = dog.bbox;
           
-          // ビデオの座標をゲーム画面の座標に変換
           const gameX = (x / videoEl.videoWidth) * overlay.width;
           const gameY = (y / videoEl.videoHeight) * overlay.height;
           const gameW = (width / videoEl.videoWidth) * overlay.width;
           const gameH = (height / videoEl.videoHeight) * overlay.height;
-          
-          // 犬の中心座標
-          const dogCenterX = gameX + gameW / 2;
-          const dogCenterY = gameY + gameH / 2;
-          
-          // カーソル位置を更新
-          cursorPos.x = dogCenterX;
-          cursorPos.y = dogCenterY;
           
           // 犬の枠を描画
           ctx.strokeStyle = '#ff6b9d';
           ctx.lineWidth = 3;
           ctx.strokeRect(gameX, gameY, gameW, gameH);
           
-          ctx.fillStyle = '#ff6b9d';
+          ctx.fillStyle = '#333';
           ctx.fillRect(gameX, Math.max(0, gameY - 25), 70, 25);
           ctx.fillStyle = 'white';
           ctx.font = 'bold 16px sans-serif';
           ctx.fillText('🐕', gameX + 8, gameY - 5);
         });
+
+        // 顔を検出した場合、鼻のランドマークを追跡
+        if (faces.length > 0) {
+          const face = faces[0];
+          
+          // Blazefaceのランドマーク：
+          // 0-2: 右目のランドマーク
+          // 3-4: 鼻のランドマーク（両側）
+          // 5-8: 口のランドマーク
+          
+          if (face.landmarks && face.landmarks.length > 3) {
+            // 鼻の中央（ランドマーク3と4の平均）
+            const nose1 = face.landmarks[3];
+            const nose2 = face.landmarks[4];
+            
+            const noseX = (nose1[0] + nose2[0]) / 2;
+            const noseY = (nose1[1] + nose2[1]) / 2;
+            
+            // ビデオ座標をゲーム画面座標に変換
+            const screenNoseX = (noseX / videoEl.videoWidth) * overlay.width;
+            const screenNoseY = (noseY / videoEl.videoHeight) * overlay.height;
+            
+            // カーソル位置を鼻に更新
+            cursorPos.x = screenNoseX;
+            cursorPos.y = screenNoseY;
+            
+            // 鼻の位置をマーカーで表示
+            ctx.fillStyle = '#ff2d7f';
+            ctx.beginPath();
+            ctx.arc(screenNoseX, screenNoseY, 8, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else if (dogs.length > 0) {
+          // 顔検出できない場合は犬の頭部推定位置を使用
+          const dog = dogs[0];
+          const [x, y, width, height] = dog.bbox;
+          const gameX = (x / videoEl.videoWidth) * overlay.width;
+          const gameY = (y / videoEl.videoHeight) * overlay.height;
+          const gameW = (width / videoEl.videoWidth) * overlay.width;
+          
+          const noseX = gameX + gameW / 2;
+          const noseY = gameY + gameW * 0.2; // 頭部の上部
+          
+          cursorPos.x = noseX;
+          cursorPos.y = noseY;
+          
+          ctx.fillStyle = '#ff2d7f';
+          ctx.beginPath();
+          ctx.arc(noseX, noseY, 8, 0, Math.PI * 2);
+          ctx.fill();
+        }
 
         // ゲーム実行中は衝突判定
         if (gameRunning) {
