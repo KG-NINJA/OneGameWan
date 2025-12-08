@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>犬のアイテム取りゲーム</title>
+  <style>
+    :root {
+      --bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --panel: rgba(255, 255, 255, 0.95);
+      --text: #333;
+      --accent: #ff6b9d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Noto Sans JP', system-ui, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .app {
+      width: min(1000px, 100%);
+      background: var(--panel);
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      overflow: hidden;
+    }
+    header {
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      text-align: center;
+    }
+    header h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+    }
+    header p {
+      margin: 0;
+      font-size: 14px;
+      opacity: 0.9;
+    }
+    .content {
+      padding: 20px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 20px;
+    }
+    .game-area {
+      position: relative;
+      border: 3px solid #667eea;
+      border-radius: 16px;
+      background: #f9f9f9;
+      overflow: hidden;
+      min-height: 400px;
+      isolation: isolate;
+    }
+    .camera-container {
+      position: absolute;
+      inset: 0;
+      opacity: 0.3;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .overlay-canvas {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .items-layer {
+      position: absolute;
+      inset: 0;
+    }
+    .item {
+      position: absolute;
+      width: 60px;
+      height: 60px;
+      cursor: grab;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+      user-select: none;
+      transition: transform 0.1s ease;
+    }
+    .item:hover {
+      transform: scale(1.1);
+    }
+    .cursor {
+      position: absolute;
+      width: 40px;
+      height: 40px;
+      border: 3px solid #ff6b9d;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 1000;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 10px rgba(255, 107, 157, 0.5);
+    }
+    .cursor::before {
+      content: '';
+      position: absolute;
+      width: 6px;
+      height: 6px;
+      background: #ff6b9d;
+      border-radius: 50%;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-width: 200px;
+    }
+    .score-box {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      padding: 20px;
+      border-radius: 16px;
+      text-align: center;
+    }
+    .score-label {
+      font-size: 14px;
+      opacity: 0.9;
+      margin-bottom: 8px;
+    }
+    .score-value {
+      font-size: 48px;
+      font-weight: 700;
+      margin: 0;
+    }
+    .timer {
+      font-size: 28px;
+      font-weight: 700;
+      text-align: center;
+      color: #667eea;
+    }
+    .status {
+      padding: 12px;
+      background: #f0f0f0;
+      border-radius: 12px;
+      font-size: 14px;
+      text-align: center;
+      color: #666;
+    }
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    button {
+      appearance: none;
+      border: none;
+      border-radius: 12px;
+      padding: 12px 16px;
+      background: #667eea;
+      color: white;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    button:hover {
+      background: #5568d3;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    button.secondary {
+      background: #e5e7eb;
+      color: #667eea;
+    }
+    button.secondary:hover {
+      background: #d1d5db;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      background: white;
+      border: 2px solid #667eea;
+      color: #667eea;
+      font-weight: 600;
+      font-size: 12px;
+      text-align: center;
+      justify-content: center;
+    }
+    .badge.active {
+      background: #667eea;
+      color: white;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ff6b9d;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .notification {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: linear-gradient(135deg, #ff6b9d, #ff8ab8);
+      color: white;
+      padding: 40px 60px;
+      border-radius: 20px;
+      text-align: center;
+      z-index: 10000;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+      animation: notification-bounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+      pointer-events: none;
+    }
+    .notification h2 {
+      margin: 0 0 16px;
+      font-size: 48px;
+      font-weight: 900;
+      letter-spacing: 0.05em;
+      text-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+    .notification p {
+      margin: 0;
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+    @keyframes notification-bounce {
+      0% {
+        transform: translate(-50%, -50%) scale(0.3);
+        opacity: 0;
+      }
+      60% {
+        transform: translate(-50%, -50%) scale(1.08);
+        opacity: 1;
+      }
+      100% {
+        transform: translate(-50%, -50%) scale(1);
+        opacity: 1;
+      }
+    }
+    @keyframes notification-fade {
+      0% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+      }
+      100% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.8);
+      }
+    }
+    .notification.fade-out {
+      animation: notification-fade 0.6s ease forwards;
+    }
+    @media (max-width: 800px) {
+      .content {
+        grid-template-columns: 1fr;
+      }
+      .sidebar {
+        min-width: auto;
+        grid-template-columns: repeat(2, 1fr);
+        display: grid;
+        gap: 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <h1>🐕 犬のアイテム取りゲーム</h1>
+      <p>アイテムとってみてワン</p>
+    </header>
+    <div class="content">
+      <div class="game-area" id="game-area">
+        <div class="camera-container">
+          <video id="video" playsinline muted></video>
+        </div>
+        <canvas id="overlay" class="overlay-canvas"></canvas>
+        <div class="items-layer" id="items-layer"></div>
+        <div class="cursor" id="cursor"></div>
+      </div>
+      
+      <aside class="sidebar">
+        <div class="score-box">
+          <div class="score-label">スコア</div>
+          <p class="score-value" id="score">0</p>
+        </div>
+        
+        <div class="timer" id="timer">30s</div>
+        
+        <div class="status" id="status">準備中...</div>
+        
+        <div class="badge" id="cam-badge">
+          <span class="dot"></span>
+          <span>待機中</span>
+        </div>
+        <div class="badge" id="model-badge">
+          <span class="dot"></span>
+          <span>読込中</span>
+        </div>
+        
+        <div class="controls">
+          <button id="start-btn">ゲーム開始</button>
+          <button id="reset-btn" class="secondary">リセット</button>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.18.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+
+  <script>
+    const videoEl = document.getElementById('video');
+    const overlay = document.getElementById('overlay');
+    const ctx = overlay.getContext('2d');
+    const gameArea = document.getElementById('game-area');
+    const itemsLayer = document.getElementById('items-layer');
+    const cursor = document.getElementById('cursor');
+    const scoreEl = document.getElementById('score');
+    const timerEl = document.getElementById('timer');
+    const statusEl = document.getElementById('status');
+    const startBtn = document.getElementById('start-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const camBadge = document.getElementById('cam-badge');
+    const modelBadge = document.getElementById('model-badge');
+
+    const ITEMS = ['🍖', '🦴', '🧀', '🥩', '🍎', '🥕'];
+    const GAME_DURATION = 30000; // 30秒
+
+    let model = null;
+    let cameraReady = false;
+    let gameRunning = false;
+    let score = 0;
+    let gameStartTime = null;
+    let detectionLoopId = null;
+    let items = [];
+    let cursorPos = { x: 0, y: 0 };
+
+    async function loadScripts() {
+      const scripts = [
+        'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.18.0/dist/tf.min.js',
+        'https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js'
+      ];
+      
+      for (const src of scripts) {
+        await new Promise((resolve) => {
+          const script = document.createElement('script');
+          script.src = src;
+          script.onload = resolve;
+          script.onerror = () => {
+            console.error('Failed to load:', src);
+            resolve();
+          };
+          document.head.appendChild(script);
+        });
+      }
+    }
+    
+    window.scriptsReady = loadScripts();
+
+    async function loadModel() {
+      try {
+        await window.scriptsReady;
+        if (typeof cocoSsd === 'undefined') {
+          throw new Error('COCO-SSD ライブラリが読み込まれていません');
+        }
+        
+        statusEl.textContent = 'モデル読込中...';
+        model = await cocoSsd.load();
+        updateBadge(modelBadge, '読込完了', true);
+        statusEl.textContent = 'STARTボタンを押してね！';
+      } catch (e) {
+        console.error('Model load error:', e);
+        statusEl.textContent = 'エラー: ' + e.message;
+      }
+    }
+
+    async function initCamera() {
+      if (cameraReady) return;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user' },
+          audio: false
+        });
+        videoEl.srcObject = stream;
+        await videoEl.play();
+        cameraReady = true;
+        updateBadge(camBadge, 'カメラOK', true);
+        statusEl.textContent = 'ゲーム開始準備完了！';
+        startDetectionLoop();
+      } catch (e) {
+        console.error('Camera error:', e);
+        statusEl.textContent = 'カメラが使用できません';
+      }
+    }
+
+    function updateBadge(badge, text, active = false) {
+      badge.classList.toggle('active', active);
+      badge.querySelector('span:not(.dot)').textContent = text;
+    }
+
+    function createItems() {
+      items = [];
+      const rect = gameArea.getBoundingClientRect();
+      const cols = 4;
+      const rows = 3;
+      const itemWidth = rect.width / cols;
+      const itemHeight = rect.height / rows;
+
+      for (let i = 0; i < 12; i++) {
+        const item = {
+          x: (i % cols) * itemWidth + itemWidth / 2 - 30,
+          y: Math.floor(i / cols) * itemHeight + itemHeight / 2 - 30,
+          emoji: ITEMS[Math.floor(Math.random() * ITEMS.length)],
+          collected: false
+        };
+        items.push(item);
+
+        const el = document.createElement('div');
+        el.className = 'item';
+        el.textContent = item.emoji;
+        el.style.left = item.x + 'px';
+        el.style.top = item.y + 'px';
+        el.id = 'item-' + i;
+        itemsLayer.appendChild(el);
+      }
+    }
+
+    function checkCollision() {
+      items.forEach((item, idx) => {
+        if (item.collected) return;
+
+        const dist = Math.hypot(
+          cursorPos.x - (item.x + 30),
+          cursorPos.y - (item.y + 30)
+        );
+
+        if (dist < 40) {
+          item.collected = true;
+          score += 10;
+          scoreEl.textContent = score;
+          const el = document.getElementById('item-' + idx);
+          if (el) el.style.opacity = '0.3';
+          
+          // 1つ目のアイテムを取ったら通知表示
+          if (score === 10) {
+            showNotification();
+          }
+        }
+      });
+    }
+
+    async function detect() {
+      if (!model || videoEl.readyState < 2) {
+        detectionLoopId = requestAnimationFrame(detect);
+        return;
+      }
+
+      try {
+        const predictions = await model.detect(videoEl);
+        
+        overlay.width = gameArea.offsetWidth;
+        overlay.height = gameArea.offsetHeight;
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+        const dogs = predictions.filter((p) => p.class === 'dog' && p.score > 0.5);
+
+        dogs.forEach((dog) => {
+          const [x, y, width, height] = dog.bbox;
+          
+          // ビデオの座標をゲーム画面の座標に変換
+          const gameX = (x / videoEl.videoWidth) * overlay.width;
+          const gameY = (y / videoEl.videoHeight) * overlay.height;
+          const gameW = (width / videoEl.videoWidth) * overlay.width;
+          const gameH = (height / videoEl.videoHeight) * overlay.height;
+          
+          // 犬の中心座標
+          const dogCenterX = gameX + gameW / 2;
+          const dogCenterY = gameY + gameH / 2;
+          
+          // カーソル位置を更新
+          cursorPos.x = dogCenterX;
+          cursorPos.y = dogCenterY;
+          
+          // 犬の枠を描画
+          ctx.strokeStyle = '#ff6b9d';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(gameX, gameY, gameW, gameH);
+          
+          ctx.fillStyle = '#ff6b9d';
+          ctx.fillRect(gameX, Math.max(0, gameY - 25), 70, 25);
+          ctx.fillStyle = 'white';
+          ctx.font = 'bold 16px sans-serif';
+          ctx.fillText('🐕', gameX + 8, gameY - 5);
+        });
+
+        // ゲーム実行中は衝突判定
+        if (gameRunning) {
+          checkCollision();
+        }
+      } catch (e) {
+        console.error('Detection error:', e);
+      }
+
+      detectionLoopId = requestAnimationFrame(detect);
+    }
+
+    function startDetectionLoop() {
+      if (detectionLoopId) cancelAnimationFrame(detectionLoopId);
+      detect();
+    }
+
+    function updateCursorPos() {
+      const gameRect = gameArea.getBoundingClientRect();
+      const screenX = gameRect.left + cursorPos.x;
+      const screenY = gameRect.top + cursorPos.y;
+      cursor.style.left = screenX + 'px';
+      cursor.style.top = screenY + 'px';
+    }
+
+    function playChime() {
+      // ウェブオーディオAPIでチャイム音を生成
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const notes = [523.25, 659.25, 783.99]; // ド、ミ、ソ
+      
+      notes.forEach((freq, i) => {
+        const osc = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        osc.connect(gain);
+        gain.connect(audioContext.destination);
+        
+        osc.frequency.value = freq;
+        osc.type = 'sine';
+        
+        const startTime = audioContext.currentTime + (i * 0.15);
+        gain.gain.setValueAtTime(0.3, startTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.3);
+        
+        osc.start(startTime);
+        osc.stop(startTime + 0.3);
+      });
+    }
+
+    function showNotification() {
+      playChime();
+      
+      const notification = document.createElement('div');
+      notification.className = 'notification';
+      notification.innerHTML = `
+        <h2>🎉 素晴らしい！</h2>
+        <p>犬におやつをあげてください！</p>
+      `;
+      document.body.appendChild(notification);
+      
+      setTimeout(() => {
+        notification.classList.add('fade-out');
+        setTimeout(() => {
+          notification.remove();
+        }, 600);
+      }, 2500);
+    }
+
+    function startGame() {
+      gameRunning = true;
+      gameStartTime = Date.now();
+      score = 0;
+      scoreEl.textContent = score;
+      itemsLayer.innerHTML = '';
+      createItems();
+      startBtn.disabled = true;
+      statusEl.textContent = 'ゲーム中！';
+      gameLoop();
+    }
+
+    function gameLoop() {
+      if (!gameRunning) return;
+
+      const elapsed = Date.now() - gameStartTime;
+      const remaining = Math.max(0, GAME_DURATION - elapsed);
+      const seconds = Math.ceil(remaining / 1000);
+      timerEl.textContent = seconds + 's';
+
+      updateCursorPos();
+
+      if (remaining <= 0) {
+        endGame();
+      } else {
+        requestAnimationFrame(gameLoop);
+      }
+    }
+
+    function endGame() {
+      gameRunning = false;
+      startBtn.disabled = false;
+      statusEl.textContent = `ゲーム終了！スコア: ${score}`;
+    }
+
+    function resetGame() {
+      gameRunning = false;
+      score = 0;
+      scoreEl.textContent = score;
+      timerEl.textContent = '30s';
+      itemsLayer.innerHTML = '';
+      statusEl.textContent = 'リセット完了！';
+      startBtn.disabled = false;
+    }
+
+    // イベントリスナー設定
+    startBtn.addEventListener('click', async () => {
+      if (!cameraReady) {
+        startBtn.textContent = '準備中...';
+        startBtn.disabled = true;
+        await initCamera();
+        startBtn.textContent = 'ゲーム開始';
+        startBtn.disabled = false;
+      } else {
+        startGame();
+      }
+    });
+
+    resetBtn.addEventListener('click', resetGame);
+
+    // 初期化
+    console.log('Initializing game...');
+    loadModel();
+  </script>
+</body>
+</html>
